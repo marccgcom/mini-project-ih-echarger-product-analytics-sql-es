@@ -67,6 +67,39 @@ LIMIT 3;
 -- LEVEL 4
 
 -- Question 10: Number of users that have used only AC chargers, DC chargers or both
+WITH user_charger_types AS (
+    SELECT
+        s.user_id,
+        c.type
+    FROM
+        sessions s
+    JOIN
+        chargers c ON s.charger_id = c.id
+    GROUP BY
+        s.user_id, c.type
+),
+user_classification AS (
+    SELECT
+        u.user_id,
+        GROUP_CONCAT(u.type ORDER BY u.type) AS types_used
+    FROM
+        user_charger_types u
+    GROUP BY
+        u.user_id
+)
+SELECT
+    CASE
+        WHEN types_used = 'AC' THEN 'AC only'
+        WHEN types_used = 'DC' THEN 'DC only'
+        WHEN types_used = 'AC,DC' THEN 'Both AC and DC'
+    END AS usage_category,
+    COUNT(*) AS user_count
+FROM
+    user_classification
+GROUP BY
+    usage_category;
+
+
 
 -- Question 11: Monthly average number of users per charger
 SELECT mes, AVG(counter) FROM 
@@ -98,9 +131,55 @@ WITH tabla AS (
 -- LEVEL 5
 
 -- Question 13: Top 3 users with longest sessions per month (consider the month of start_time)
-SELECT user_id as user, MONTH(start_time) as `month`, MAX(TIMESTAMPDIFF(MINUTE, start_time, end_time)) as longest_session_time_minutes
-FROM sessions
-GROUP BY user,`month`
-ORDER BY longest_session_time_minutes DESC
-LIMIT 3;
+WITH ranqued AS (
+    SELECT 
+        user_id, 
+        MONTH(start_time) AS `month`, 
+        TIMESTAMPDIFF(MINUTE, start_time, end_time) AS session_time_minutes,
+        RANK() OVER (PARTITION BY user_id, MONTH(start_time) ORDER BY TIMESTAMPDIFF(MINUTE, start_time, end_time) DESC) AS row_num
+    FROM 
+        sessions
+)
+SELECT 
+    user_id, 
+    `month`, 
+    session_time_minutes AS longest_session_time_minutes
+FROM 
+    ranqued
+WHERE 
+    row_num <= 3
+ORDER BY 
+    user_id, `month`;
+
 -- Question 14. Average time between sessions for each charger for each month (consider the month of start_time)
+WITH session_diffs AS (
+    SELECT
+        charger_id,
+        MONTH(start_time) AS month,
+        TIMESTAMPDIFF(MINUTE, LAG(start_time) OVER (PARTITION BY charger_id, MONTH(start_time) ORDER BY start_time), start_time) AS diff_minutes
+    FROM
+        sessions
+),
+valid_diffs AS (
+    SELECT
+        charger_id,
+        month,
+        diff_minutes
+    FROM
+        session_diffs
+    WHERE
+        diff_minutes IS NOT NULL
+)
+SELECT
+    charger_id,
+    month,
+    AVG(diff_minutes) AS avg_time_between_sessions_minutes
+FROM
+    valid_diffs
+GROUP BY
+    charger_id, month
+ORDER BY
+    charger_id, month;
+
+
+
